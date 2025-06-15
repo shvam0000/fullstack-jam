@@ -1,5 +1,6 @@
 import { DataGrid } from '@mui/x-data-grid';
 import { useEffect, useState } from 'react';
+import toast, { Toaster } from 'react-hot-toast';
 import {
   getCollectionsById,
   ICompany,
@@ -29,9 +30,70 @@ const CompanyTable = (props: {
   const [operationId, setOperationId] = useState<string | null>(null);
   const [progress, setProgress] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
-  const [showSuccess, setShowSuccess] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
-  // Progress polling effect
+  const targetCollectionId = isLikedCompanies ? myListId! : likedCompaniesId!;
+  const targetCollectionName = isLikedCompanies ? 'My List' : 'Liked Companies';
+
+  const handleAddSelectedToTarget = async () => {
+    if (selectedRows.length === 0) {
+      toast.error('Please select at least one company');
+      return;
+    }
+
+    // Check if any selected company is already in target list
+    const alreadyInTarget = selectedRows.some(
+      (row) => row.liked === !isLikedCompanies
+    );
+    if (alreadyInTarget) {
+      toast.error(
+        `One or more selected companies are already in ${targetCollectionName}`
+      );
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const { operation_id } = await copyCollectionCompanies(
+        selectedCollectionId,
+        targetCollectionId,
+        selectedRows.map((row) => row.id)
+      );
+      setOperationId(operation_id);
+      toast.success(
+        `Moving ${selectedRows.length} companies to ${targetCollectionName}...`
+      );
+    } catch (error) {
+      toast.error(
+        `Failed to add selected companies to ${targetCollectionName}`
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCopyAllToTarget = async () => {
+    setShowConfirmModal(true);
+  };
+
+  const handleConfirmCopy = async () => {
+    setShowConfirmModal(false);
+    try {
+      setIsLoading(true);
+      const { operation_id } = await copyCollectionCompanies(
+        selectedCollectionId,
+        targetCollectionId
+      );
+      setOperationId(operation_id);
+      toast.success(`Moving all companies to ${targetCollectionName}...`);
+    } catch (error) {
+      toast.error(`Failed to copy all companies to ${targetCollectionName}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Update progress polling effect
   useEffect(() => {
     if (!operationId || !likedCompaniesId || !myListId) return;
 
@@ -55,16 +117,17 @@ const CompanyTable = (props: {
           setOperationId(null);
           setProgress(0);
           setSelectedRows([]);
-          setShowSuccess(true);
-          setTimeout(() => setShowSuccess(false), 3000);
+          toast.success(
+            `Successfully moved companies to ${targetCollectionName}!`
+          );
           onCollectionUpdate?.();
         } else if (status === 'error') {
-          setError('Operation failed');
+          toast.error('Operation failed');
           setOperationId(null);
           setProgress(0);
         }
       } catch (error) {
-        setError('Failed to get progress');
+        toast.error('Failed to get progress');
         setOperationId(null);
         setProgress(0);
       }
@@ -79,6 +142,7 @@ const CompanyTable = (props: {
     selectedRows,
     isLikedCompanies,
     onCollectionUpdate,
+    targetCollectionName,
   ]);
 
   useEffect(() => {
@@ -98,65 +162,33 @@ const CompanyTable = (props: {
     return null;
   }
 
-  const targetCollectionId = isLikedCompanies ? myListId : likedCompaniesId;
-  const targetCollectionName = isLikedCompanies ? 'My List' : 'Liked Companies';
-
-  const handleAddSelectedToTarget = async () => {
-    if (selectedRows.length === 0) {
-      setError('Please select at least one company');
-      return;
-    }
-
-    // Check if any selected company is already in target list
-    const alreadyInTarget = selectedRows.some(
-      (row) => row.liked === !isLikedCompanies
-    );
-    if (alreadyInTarget) {
-      setError(
-        `One or more selected companies are already in ${targetCollectionName}`
-      );
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-      const { operation_id } = await copyCollectionCompanies(
-        selectedCollectionId,
-        targetCollectionId,
-        selectedRows.map((row) => row.id)
-      );
-      setOperationId(operation_id);
-    } catch (error) {
-      setError(`Failed to add selected companies to ${targetCollectionName}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleCopyAllToTarget = async () => {
-    if (
-      !window.confirm(
-        `Are you sure you want to copy all companies to ${targetCollectionName}?`
-      )
-    ) {
-      return;
-    }
-    try {
-      setIsLoading(true);
-      const { operation_id } = await copyCollectionCompanies(
-        selectedCollectionId,
-        targetCollectionId
-      );
-      setOperationId(operation_id);
-    } catch (error) {
-      setError(`Failed to copy all companies to ${targetCollectionName}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
     <div>
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: '#333',
+            color: '#fff',
+          },
+          success: {
+            duration: 2000,
+            iconTheme: {
+              primary: '#4ade80',
+              secondary: '#fff',
+            },
+          },
+          error: {
+            duration: 4000,
+            iconTheme: {
+              primary: '#ef4444',
+              secondary: '#fff',
+            },
+          },
+        }}
+      />
+
       <div className="mb-4 flex gap-4 items-center">
         {selectedRows.length > 0 && (
           <button
@@ -235,22 +267,28 @@ const CompanyTable = (props: {
         )}
       </div>
 
-      {showSuccess && (
-        <div className="fixed bottom-4 right-4 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded">
-          <span className="block sm:inline">Successfully moved companies!</span>
-          <button
-            className="absolute top-0 bottom-0 right-0 px-4 py-3"
-            onClick={() => setShowSuccess(false)}>
-            <span className="sr-only">Dismiss</span>
-            <svg
-              className="fill-current h-6 w-6 text-green-500"
-              role="button"
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 20 20">
-              <title>Close</title>
-              <path d="M14.348 14.849a1.2 1.2 0 0 1-1.697 0L10 11.819l-2.651 3.029a1.2 1.2 0 1 1-1.697-1.697l2.758-3.15-2.759-3.152a1.2 1.2 0 1 1 1.697-1.697L10 8.183l2.651-3.031a1.2 1.2 0 1 1 1.697 1.697l-2.758 3.152 2.758 3.15a1.2 1.2 0 0 1 0 1.698z" />
-            </svg>
-          </button>
+      {/* Confirmation Modal */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Confirm Action</h3>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to copy all companies to{' '}
+              {targetCollectionName}?
+            </p>
+            <div className="flex justify-end gap-4">
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800">
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmCopy}
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                Confirm
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
