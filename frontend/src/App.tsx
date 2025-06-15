@@ -1,15 +1,15 @@
-import "./App.css";
+import './App.css';
 
-import CssBaseline from "@mui/material/CssBaseline";
-import { createTheme, ThemeProvider } from "@mui/material/styles";
-import { useEffect, useState } from "react";
-import CompanyTable from "./components/CompanyTable";
-import { getCollectionsMetadata } from "./utils/jam-api";
-import useApi from "./utils/useApi";
+import CssBaseline from '@mui/material/CssBaseline';
+import { createTheme, ThemeProvider } from '@mui/material/styles';
+import { useEffect, useState } from 'react';
+import CompanyTable from './components/CompanyTable';
+import { getCollectionsMetadata } from './utils/jam-api';
+import useApi from './utils/useApi';
 
 const darkTheme = createTheme({
   palette: {
-    mode: "dark",
+    mode: 'dark',
   },
 });
 
@@ -17,15 +17,27 @@ function App() {
   const [selectedCollectionId, setSelectedCollectionId] = useState<string>();
   const { data: collectionResponse } = useApi(() => getCollectionsMetadata());
 
+  const likedCompaniesCollection = collectionResponse?.find(
+    (collection) => collection.collection_name === 'Liked Companies List'
+  );
+
+  const myListCollection = collectionResponse?.find(
+    (collection) => collection.collection_name === 'My List'
+  );
+
   useEffect(() => {
     setSelectedCollectionId(collectionResponse?.[0]?.id);
   }, [collectionResponse]);
 
   useEffect(() => {
     if (selectedCollectionId) {
-      window.history.pushState({}, "", `?collection=${selectedCollectionId}`);
+      window.history.pushState({}, '', `?collection=${selectedCollectionId}`);
     }
   }, [selectedCollectionId]);
+
+  const handleCollectionUpdate = () => {
+    // Implementation of handleCollectionUpdate
+  };
 
   return (
     <ThemeProvider theme={darkTheme}>
@@ -45,12 +57,11 @@ function App() {
                   <div
                     className={`py-1 pl-4 hover:cursor-pointer hover:bg-orange-300 ${
                       selectedCollectionId === collection.id &&
-                      "bg-orange-500 font-bold"
+                      'bg-orange-500 font-bold'
                     }`}
                     onClick={() => {
                       setSelectedCollectionId(collection.id);
-                    }}
-                  >
+                    }}>
                     {collection.collection_name}
                   </div>
                 );
@@ -59,7 +70,12 @@ function App() {
           </div>
           <div className="w-4/5 ml-4">
             {selectedCollectionId && (
-              <CompanyTable selectedCollectionId={selectedCollectionId} />
+              <CompanyTable
+                selectedCollectionId={selectedCollectionId}
+                likedCompaniesId={likedCompaniesCollection?.id}
+                myListId={myListCollection?.id}
+                onCollectionUpdate={handleCollectionUpdate}
+              />
             )}
           </div>
         </div>
