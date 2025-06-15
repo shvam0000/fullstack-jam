@@ -32,6 +32,7 @@ def fetch_companies_with_liked(
 
     liked_associations = (
         db.query(database.CompanyCollectionAssociation)
+        .join(database.Company)
         .filter(database.Company.id.in_(company_ids))
         .filter(
             database.CompanyCollectionAssociation.collection_id == liked_list.id,
@@ -42,7 +43,9 @@ def fetch_companies_with_liked(
     liked_companies = {association.company_id for association in liked_associations}
 
     companies = (
-        db.query(database.Company).filter(database.Company.id.in_(company_ids)).all()
+        db.query(database.Company)
+        .filter(database.Company.id.in_(company_ids))
+        .all()
     )
 
     results = [(company, company.id in liked_companies) for company in companies]
