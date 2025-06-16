@@ -17,6 +17,10 @@ Enjoy :D
 
 A system for managing company collections with features to move companies between "My List" and "Liked Companies" collections. Supports individual and bulk operations with progress tracking.
 
+## Submission Video
+
+https://youtu.be/Yj_a1FIO8IA
+
 ## Technical Stack
 
 - Frontend: React, TypeScript, Tailwind CSS, Material-UI DataGrid
