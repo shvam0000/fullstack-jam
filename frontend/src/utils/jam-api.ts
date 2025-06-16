@@ -78,7 +78,7 @@ export async function copyCollectionCompanies(
 ): Promise<{ operation_id: string }> {
   try {
     const endpoint = companyIds
-      ? `${BASE_URL}/collections/${targetId}/companies`
+      ? `${BASE_URL}/collections/${sourceId}/move-to/${targetId}`
       : `${BASE_URL}/collections/${sourceId}/copy-to/${targetId}`;
 
     console.log('Making API call to:', endpoint);
@@ -94,7 +94,6 @@ export async function copyCollectionCompanies(
     throw error;
   }
 }
-
 export async function getOperationProgress(
   operationId: string
 ): Promise<IOperationProgress> {

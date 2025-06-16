@@ -168,6 +168,15 @@ async def copy_companies_background(
         batch_size = 200
         processed = 0
 
+        # Get the Liked Companies List ID
+        liked_list = (
+            db.query(database.CompanyCollection)
+            .filter(database.CompanyCollection.collection_name == "Liked Companies List")
+            .first()
+        )
+        if not liked_list:
+            raise Exception("Liked Companies List not found")
+
         while processed < total_companies:
             companies = (
                 db.query(database.CompanyCollectionAssociation)
@@ -205,6 +214,39 @@ async def copy_companies_background(
                     db.rollback()
                     pass
 
+            # Update liked status
+            if target_id == liked_list.id:
+                # Moving to Liked Companies List
+                for company in companies:
+                    existing = (
+                        db.query(database.CompanyCollectionAssociation)
+                        .filter(database.CompanyCollectionAssociation.collection_id == liked_list.id)
+                        .filter(database.CompanyCollectionAssociation.company_id == company.company_id)
+                        .first()
+                    )
+                    if not existing:
+                        db.add(database.CompanyCollectionAssociation(
+                            company_id=company.company_id,
+                            collection_id=liked_list.id
+                        ))
+            else:
+                # Moving from Liked Companies List
+                for company in companies:
+                    existing = (
+                        db.query(database.CompanyCollectionAssociation)
+                        .filter(database.CompanyCollectionAssociation.collection_id == liked_list.id)
+                        .filter(database.CompanyCollectionAssociation.company_id == company.company_id)
+                        .first()
+                    )
+                    if existing:
+                        db.delete(existing)
+
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                pass
+
             processed += len(companies)
             operation_progress[operation_id] = (processed / total_companies) * 100
 
@@ -229,3 +271,147 @@ def get_operation_progress(operation_id: str):
     status = "completed" if progress == 100 else "error" if progress == -1 else "in_progress"
     
     return OperationProgress(progress=progress, status=status)
+
+@router.post("/{source_id}/move-to/{target_id}", response_model=OperationResponse)
+async def move_collection_companies(
+    source_id: uuid.UUID,
+    target_id: uuid.UUID,
+    request: AddCompaniesRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(database.get_db)
+):
+    operation_id = str(uuid.uuid4())
+    operation_progress[operation_id] = 0.0
+
+    total_companies = len(request.company_ids)
+    background_tasks.add_task(
+        move_companies_background,
+        source_id,
+        target_id,
+        request.company_ids,
+        operation_id,
+        total_companies,
+        db
+    )
+
+    return OperationResponse(operation_id=operation_id)
+
+async def move_companies_background(
+    source_id: uuid.UUID,
+    target_id: uuid.UUID,
+    company_ids: list[int],
+    operation_id: str,
+    total_companies: int,
+    db: Session
+):
+    try:
+        processed = 0
+        batch_size = 200
+
+        # Get the Liked Companies List ID
+        liked_list = (
+            db.query(database.CompanyCollection)
+            .filter(database.CompanyCollection.collection_name == "Liked Companies List")
+            .first()
+        )
+        if not liked_list:
+            raise Exception("Liked Companies List not found")
+
+        for i in range(0, len(company_ids), batch_size):
+            batch = company_ids[i:i + batch_size]
+            
+            # Verify companies are in source collection
+            source_associations = (
+                db.query(database.CompanyCollectionAssociation)
+                .filter(database.CompanyCollectionAssociation.collection_id == source_id)
+                .filter(database.CompanyCollectionAssociation.company_id.in_(batch))
+                .all()
+            )
+            
+            valid_company_ids = {assoc.company_id for assoc in source_associations}
+            
+            # Get existing associations in target
+            existing_associations = {
+                assoc.company_id 
+                for assoc in db.query(database.CompanyCollectionAssociation)
+                .filter(database.CompanyCollectionAssociation.collection_id == target_id)
+                .filter(database.CompanyCollectionAssociation.company_id.in_(valid_company_ids))
+                .all()
+            }
+            
+            # Create new associations
+            new_associations = [
+                database.CompanyCollectionAssociation(
+                    company_id=company_id,
+                    collection_id=target_id
+                )
+                for company_id in valid_company_ids
+                if company_id not in existing_associations
+            ]
+            
+            if new_associations:
+                try:
+                    db.bulk_save_objects(new_associations)
+                    db.commit()
+                except IntegrityError:
+                    db.rollback()
+                    pass
+
+            # Update liked status
+            if target_id == liked_list.id:
+                # Moving to Liked Companies List
+                for company_id in valid_company_ids:
+                    existing = (
+                        db.query(database.CompanyCollectionAssociation)
+                        .filter(database.CompanyCollectionAssociation.collection_id == liked_list.id)
+                        .filter(database.CompanyCollectionAssociation.company_id == company_id)
+                        .first()
+                    )
+                    if not existing:
+                        db.add(database.CompanyCollectionAssociation(
+                            company_id=company_id,
+                            collection_id=liked_list.id
+                        ))
+            else:
+                # Moving from Liked Companies List
+                for company_id in valid_company_ids:
+                    existing = (
+                        db.query(database.CompanyCollectionAssociation)
+                        .filter(database.CompanyCollectionAssociation.collection_id == liked_list.id)
+                        .filter(database.CompanyCollectionAssociation.company_id == company_id)
+                        .first()
+                    )
+                    if existing:
+                        db.delete(existing)
+
+            # Remove from source collection
+            for company_id in valid_company_ids:
+                source_assoc = (
+                    db.query(database.CompanyCollectionAssociation)
+                    .filter(database.CompanyCollectionAssociation.collection_id == source_id)
+                    .filter(database.CompanyCollectionAssociation.company_id == company_id)
+                    .first()
+                )
+                if source_assoc:
+                    db.delete(source_assoc)
+
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                pass
+            
+            processed += len(batch)
+            operation_progress[operation_id] = (processed / total_companies) * 100
+            
+            await asyncio.sleep(0.1)
+        
+        operation_progress[operation_id] = 100.0
+        
+    except Exception as e:
+        operation_progress[operation_id] = -1.0
+        raise e
+    finally:
+        await asyncio.sleep(300)
+        if operation_id in operation_progress:
+            del operation_progress[operation_id]
